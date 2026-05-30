@@ -105,8 +105,11 @@ class TrainingInput:
   # A mask that determines which input tokens are valid.
   input_mask: jax.Array | np.ndarray
 
-  # Optional multimodal data (images or omics vectors).
+  # Optional image input for multimodal models.
   images: jax.Array | np.ndarray | None = None
+
+  # Optional omics vectors for omics-conditioned models.
+  omics_vectors: jax.Array | np.ndarray | None = None
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)

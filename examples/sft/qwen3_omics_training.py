@@ -124,7 +124,7 @@ class _TokenizeAndBuild(grain.MapTransform):
     return peft_trainer.TrainingInput(
         input_tokens=tokens,
         input_mask=mask,
-        images=omics.astype(np.float32),
+        omics_vectors=omics.astype(np.float32),
     )
 
   def _pad(self, x, val):
@@ -181,9 +181,8 @@ def train(train_ds, model, tokenizer, mesh, max_steps, output_dir, pid=0):
         'positions': positions,
         'attention_mask': attention_mask,
     }
-    # Map images → omics_vectors for the model's __call__
-    if x.images is not None:
-      result['omics_vectors'] = x.images
+    if x.omics_vectors is not None:
+      result['omics_vectors'] = x.omics_vectors
     return result
 
   ckpt_dir = os.path.join(output_dir, 'checkpoints')
