@@ -32,7 +32,7 @@ import jax.sharding as shd
 from jax.sharding import PartitionSpec as P
 import jaxtyping
 from tunix.generate.mappings import BackendMappingMixin
-from tunix.models.gemma3 import merge_embeddings as merge_embeddings_lib
+from tunix.models import merge_embeddings as merge_embeddings_lib
 from tunix.utils import compat
 from tunix.utils import env_utils
 
