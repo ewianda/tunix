@@ -182,10 +182,8 @@ def initialize_gene_token_embeddings(
       if target_id is None:
         continue
       mean_embed = jnp.mean(
-          model.embedder.input_embedding.value[
-              jnp.asarray(token_ids, dtype=jnp.int32)
-          ],
-          axis=0,
+          lm_head[:, jnp.asarray(token_ids, dtype=jnp.int32)],
+          axis=1,
       )
       lm_head = lm_head.at[:, target_id].set(mean_embed)
     model.lm_head.w.value = lm_head
