@@ -353,12 +353,12 @@ def main(argv):
     print('Running data sanity check...', flush=True)
     for first_batch in train_ds:
       tokens = np.asarray(first_batch.input_tokens)
-      images = np.asarray(first_batch.images)
+      omics_vectors = np.asarray(first_batch.omics_vectors)
       omics_count = np.sum(tokens == omics_token_id, axis=-1)
       print(f'  First batch tokens shape: {tokens.shape}', flush=True)
-      print(f'  First batch omics shape: {images.shape}', flush=True)
+      print(f'  First batch omics shape: {omics_vectors.shape}', flush=True)
       print(f'  <omics> tokens per sample: {omics_count}', flush=True)
-      print(f'  Omics L2 per sample: {np.sqrt(np.sum(images**2, axis=-1)).flatten()}', flush=True)
+      print(f'  Omics L2 per sample: {np.sqrt(np.sum(omics_vectors**2, axis=-1)).flatten()}', flush=True)
       if np.all(omics_count == 0):
         raise ValueError(
             f'No <omics> tokens found in first batch! '
