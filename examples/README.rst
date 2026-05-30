@@ -54,6 +54,8 @@ Supervised fine-tuning examples:
 
   * Launch scripts for Gemma 2b, Gemma2 2b, Gemma3 4b, Llama3.2 3b, Qwen2.5 0.5b
   * ``README.md`` - Hardware resource requirements for SFT training
+* ``qwen3_omics_minimal.py`` - Minimal OmicsLM-style Qwen3 example with
+  ``<omics>`` placeholder projection and gene-token augmentation.
 
 GCE VM Setup for Fine-Tuning
 ----------------------------

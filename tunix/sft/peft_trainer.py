@@ -18,6 +18,7 @@ from collections.abc import Iterable
 import contextlib
 import dataclasses
 import functools
+import inspect
 import time
 from typing import Any, Callable, Concatenate, Dict, List, ParamSpec, Tuple
 
@@ -104,8 +105,11 @@ class TrainingInput:
   # A mask that determines which input tokens are valid.
   input_mask: jax.Array | np.ndarray
 
-  # Optional images for vision models.
+  # Optional image input for multimodal models.
   images: jax.Array | np.ndarray | None = None
+
+  # Optional omics vectors for omics-conditioned models.
+  omics_vectors: jax.Array | np.ndarray | None = None
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
@@ -857,10 +861,23 @@ def _default_loss_fn(
     positions: jax.Array,
     attention_mask: jax.Array,
     images: jax.Array | None = None,
+    omics_vectors: jax.Array | None = None,
 ) -> ArrayLike:
   """Default loss function for PEFT training."""
-  # Weird kwargs workaround because not all models support `images` right now.
-  kwargs = {} if images is None else {"images": images}
+  # Weird kwargs workaround because not all models support all modalities.
+  kwargs = {}
+  if images is not None:
+    kwargs["images"] = images
+  if omics_vectors is not None:
+    kwargs["omics_vectors"] = omics_vectors
+  # Filter out kwargs the model doesn't accept, unless model uses **kwargs
+  model_params = inspect.signature(model.__call__).parameters
+  has_var_keyword = any(
+      p.kind == inspect.Parameter.VAR_KEYWORD
+      for p in model_params.values()
+  )
+  if not has_var_keyword:
+    kwargs = {k: v for k, v in kwargs.items() if k in model_params}
   logits, _ = model(input_tokens, positions, None, attention_mask, **kwargs)
 
   # Exclude the last step as it does not appear in the targets.
