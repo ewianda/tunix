@@ -319,10 +319,10 @@ def main(argv):
       omics_token_id=omics_token_id,
       embed_dim=base_config.embed_dim,
       neftune_alpha=_NEFTUNE_ALPHA.value,
-      debug=True,
+      debug=False,
   )
 
-  # Load model using backbone-agnostic loader
+  # Load model using compatibility loader (for native Qwen3 omics support)
   with jax.set_mesh(mesh):
     if pid == 0:
       print('Loading model...', flush=True)
