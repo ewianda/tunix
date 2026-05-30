@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Backbone-agnostic omics multimodal support for Tunix LLMs."""
+"""Compatibility layer for legacy omics helpers.
+
+Prefer native omics support in `tunix.models.qwen3`.
+"""
 
 from tunix.models.omics.model import OmicsAgnosticLM
 from tunix.models.omics.model import OmicsConfig

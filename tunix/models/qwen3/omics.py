@@ -27,7 +27,10 @@ DEFAULT_OMICS_TOKEN = '<omics>'
 
 @dataclasses.dataclass(frozen=True)
 class GeneTokenAugmentation:
-  """Result of adding gene-symbol tokens to a tokenizer."""
+  """Result of adding gene-symbol tokens to a tokenizer.
+
+  `gene_token_ids` only contains symbols newly added by this call.
+  """
 
   base_vocab_size: int
   added_symbols: tuple[str, ...]

@@ -16,6 +16,7 @@ from absl.testing import absltest
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
+from tunix.models import omics as omics_model
 from tunix.models.qwen3 import model as qwen3_model
 from tunix.models.qwen3 import omics as omics_lib
 
@@ -164,6 +165,22 @@ class Qwen3OmicsTest(absltest.TestCase):
     )
     np.testing.assert_allclose(
         np.asarray(model.embedder.input_embedding.value[tp53_id]), tp53_expected
+    )
+
+  def test_gene_token_ids_include_only_newly_added_tokens(self):
+    tokenizer = _FakeTokenizer()
+    augmentation = omics_lib.add_gene_tokens(
+        tokenizer=tokenizer,
+        gene_symbols=['BRCA1', 'TP53', 'B'],
+    )
+    self.assertNotIn('B', augmentation.gene_token_ids)
+    self.assertSequenceEqual(
+        list(augmentation.added_symbols), ['BRCA1', 'TP53']
+    )
+
+  def test_omics_config_default_dim_matches_qwen3_constant(self):
+    self.assertEqual(
+        omics_model.OmicsConfig().omics_dim, omics_lib.DEFAULT_OMICS_DIM
     )
 
 

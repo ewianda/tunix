@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""OmicsLM training using backbone-agnostic tunix.models.omics module.
+"""OmicsLM training using Qwen3 native omics conditioning.
 
 Usage:
     python examples/sft/qwen3_omics_training.py \
@@ -41,11 +41,12 @@ from transformers import AutoTokenizer
 from tunix.generate import tokenizer_adapter as tokenizer_lib
 from tunix.models.omics import OmicsConfig, load_omics_model
 from tunix.models.qwen3 import model as model_lib
+from tunix.models.qwen3 import omics as omics_lib
 from tunix.models.qwen3 import params as params_lib
 from tunix.sft import metrics_logger
 from tunix.sft import peft_trainer
 
-OMICS_TOKEN = '<omics>'
+OMICS_TOKEN = omics_lib.DEFAULT_OMICS_TOKEN
 
 
 def _gcs_glob(pattern: str) -> list[str]:
@@ -70,7 +71,9 @@ _MODEL_CACHE = flags.DEFINE_string('model_cache', '/tmp/qwen3-4b', 'Local model 
 _DATA_PATTERN = flags.DEFINE_string('data_pattern', '', 'ArrayRecord GCS pattern.')
 _OUTPUT_DIR = flags.DEFINE_string('output_dir',
     'gs://omicslm-batch-data/omicslm_training_v3', 'Output dir.')
-_OMICS_DIM = flags.DEFINE_integer('omics_dim', 20006, 'Omics vector dimension.')
+_OMICS_DIM = flags.DEFINE_integer(
+    'omics_dim', omics_lib.DEFAULT_OMICS_DIM, 'Omics vector dimension.'
+)
 _NORM_STATS = flags.DEFINE_string('norm_stats', '/tmp/omics_norm_stats.npz',
     'Path to pre-computed normalization stats (gene_mean, global_std).')
 _NEFTUNE_ALPHA = flags.DEFINE_float('neftune_alpha', 5.0, 'NEFTune noise alpha (0 to disable).')
@@ -98,7 +101,7 @@ class _TokenizeAndBuild(grain.MapTransform):
     self.tokenizer = tokenizer
     self.max_seq_len = max_seq_len
     self.omics_dim = omics_dim
-    self.gene_mean = gene_mean  # (20006,) or None
+    self.gene_mean = gene_mean  # (omics_dim,) or None
     self.global_std = global_std
 
   def map(self, element):
