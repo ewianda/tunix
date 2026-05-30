@@ -232,14 +232,6 @@ def train(train_ds, model, tokenizer, mesh, max_steps, output_dir, pid=0):
 def main(argv):
   del argv
 
-  coordinator = os.environ.get('JAX_COORDINATOR_ADDRESS')
-  if coordinator:
-    jax.distributed.initialize(
-        coordinator_address=coordinator,
-        num_processes=int(os.environ['JAX_NUM_PROCESSES']),
-        process_id=int(os.environ['JAX_PROCESS_ID']),
-    )
-
   pid = jax.process_index()
   n_devices = jax.device_count()
   n_local = len(jax.local_devices())
@@ -280,7 +272,7 @@ def main(argv):
     )
 
   # Barrier: ensure all hosts have tokenizer ready before proceeding
-  if coordinator:
+  if jax.process_count() > 1:
     jax.experimental.multihost_utils.sync_global_devices('tokenizer_ready')
 
   # Load normalization stats
