@@ -32,6 +32,7 @@ import jax.sharding as shd
 from jax.sharding import PartitionSpec as P
 import jaxtyping
 from tunix.generate.mappings import BackendMappingMixin
+from tunix.models import merge_embeddings as merge_embeddings_lib
 from tunix.utils import compat
 from tunix.utils import env_utils
 
@@ -42,6 +43,20 @@ K_MASK = -2.3819763e38
 
 LayerCache = dict[str, jaxtyping.Array]
 Cache = dict[str, LayerCache]
+
+
+def _merge_placeholder_embeddings(
+    *,
+    text_embeddings: jaxtyping.ArrayLike,
+    replacement_embeddings: jaxtyping.ArrayLike,
+    mask: jaxtyping.ArrayLike,
+) -> jaxtyping.ArrayLike:
+  """Merges placeholder-token embeddings with replacement embeddings."""
+  return merge_embeddings_lib.merge_embeddings(
+      text_embeddings=text_embeddings,
+      vision_embeddings=replacement_embeddings,
+      mask=mask,
+  )
 
 
 def round_up_to_base(x: int, base: int, threshold: int | None = None) -> int:
@@ -152,6 +167,8 @@ class ModelConfig:
   param_dtype: jnp.dtype = jnp.float32
   use_flash_attention: bool = False
   flash_attention_block_size: int = 1024
+  omics_dim: int | None = None
+  omics_token_placeholder: int | None = None
 
   @classmethod
   def qwen3_0p6b(cls):  # qwen3-0.6B
@@ -363,6 +380,49 @@ class Embedder(nnx.Module):
     x = jnp.astype(x, self.dtype)
     w = jnp.astype(self.input_embedding.value, self.dtype)
     return jnp.dot(x, w.T)
+
+
+class OmicsProjector(nnx.Module):
+  """Project continuous omics vectors into token embedding space.
+
+  Single affine projection (Wv + b) matching the OmicsLM paper.
+  Initialized with Xavier-uniform weights scaled by gain 0.01 and zero bias.
+  Data must be pre-normalized in the pipeline (log1p, per-gene centering,
+  global std scaling).
+  """
+
+  def __init__(
+      self,
+      omics_dim: int,
+      embed_dim: int,
+      *,
+      rngs: nnx.Rngs,
+      dtype: jnp.dtype,
+      param_dtype: jnp.dtype,
+      shd_config: 'ShardingConfig | None' = None,
+  ):
+    self.dtype = dtype
+    self.embed_dim = embed_dim
+
+    shd = shd_config or ShardingConfig.get_default_sharding()
+
+    self.linear = nnx.Linear(
+        omics_dim, embed_dim,
+        dtype=dtype, param_dtype=param_dtype, rngs=rngs,
+        kernel_init=nnx.with_partitioning(
+            lambda k, s, d=param_dtype: nnx.initializers.xavier_uniform()(k, s, d) * 0.01,
+            shd.ffw_weight_df,
+        ),
+        bias_init=nnx.with_partitioning(
+            nnx.initializers.zeros_init(), shd.rms_norm_weight,
+        ),
+    )
+
+  @jax.named_scope('omics_project')
+  def __call__(self, x: jaxtyping.ArrayLike) -> jaxtyping.Array:
+    x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+    x = jnp.astype(x, self.dtype)
+    return self.linear(x)
 
 
 def apply_rope(
@@ -1152,6 +1212,15 @@ class Qwen3(BackendMappingMixin, nnx.Module):
         dtype=config.dtype,
         param_dtype=config.param_dtype,
     )
+    if config.omics_dim is not None:
+      self.omics_projector = OmicsProjector(
+          omics_dim=config.omics_dim,
+          embed_dim=config.embed_dim,
+          rngs=rngs,
+          dtype=config.dtype,
+          param_dtype=config.param_dtype,
+          shd_config=config.shd_config,
+      )
     self.layers = compat.ModuleList([
         DecoderLayer(config=config, rngs=rngs) for _ in range(config.num_layers)
     ])
@@ -1196,6 +1265,7 @@ class Qwen3(BackendMappingMixin, nnx.Module):
       attention_mask: jaxtyping.Array,  # [B, L, L']
       output_hidden_states: bool = False,
       segment_ids: jaxtyping.Array | None = None,  # [B, L]
+      omics_vectors: jaxtyping.Array | None = None,  # [B, N, D]
   ) -> tuple[jaxtyping.Array, Cache | None]:
     """Qwen3 model.
 
@@ -1210,6 +1280,9 @@ class Qwen3(BackendMappingMixin, nnx.Module):
         to pad-token, or sequence-packing across document boundaries). Pass a
         1/0 mask to skip pad positions; pass increasing integer ids per packed
         document for sequence packing.
+      omics_vectors: optional omics vectors [B, N, D] or [B, D]. If provided,
+        embeddings at `omics_token_placeholder` token positions are replaced
+        with projected omics embeddings.
 
     Returns:
       predicted_logits, new_cache
@@ -1218,7 +1291,9 @@ class Qwen3(BackendMappingMixin, nnx.Module):
       new_cache: updated cache if the input cache is not None, None elsewhere.
     """
     new_cache = None if cache is None else {}
-    x = self.embedder.encode(input_tokens)
+    x = self._encode_and_get_inputs(
+        tokens=input_tokens, omics_vectors=omics_vectors
+    )
 
     for i, layer in enumerate(self.layers):
       layer_name = f'layer_{i}'
@@ -1243,6 +1318,52 @@ class Qwen3(BackendMappingMixin, nnx.Module):
 
     return jnp.astype(logits, jnp.float32), new_cache  # pytype: disable=bad-return-type
 
+  def _assert_support_omics(self) -> None:
+    if not hasattr(self, 'omics_projector'):
+      raise ValueError(
+          f'The model {type(self).__name__!r} does not have an omics '
+          'projector, yet `omics_vectors` are provided.'
+      )
+    if self.config.omics_token_placeholder is None:
+      raise ValueError(
+          '`omics_token_placeholder` must be set in ModelConfig when '
+          '`omics_vectors` are provided.'
+      )
+
+  def _encode_and_get_inputs(
+      self,
+      *,
+      tokens: jaxtyping.Array,  # (B, L)
+      omics_vectors: jaxtyping.Array | None = None,  # (B, N, D) or (B, D)
+  ) -> jaxtyping.Array:
+    x = self.embedder.encode(tokens)
+    if omics_vectors is not None:
+      self._assert_support_omics()
+      if len(omics_vectors.shape) == 2:
+        omics_vectors = omics_vectors[:, None, :]
+      x = self._merge_omics_embeddings(
+          tokens=tokens,
+          embeddings=x,
+          omics_vectors=omics_vectors,
+      )
+    return x
+
+  def _merge_omics_embeddings(
+      self,
+      *,
+      tokens: jaxtyping.ArrayLike,  # (B, L)
+      embeddings: jaxtyping.ArrayLike,  # (B, L, H)
+      omics_vectors: jaxtyping.ArrayLike,  # (B, N, D)
+  ) -> jaxtyping.ArrayLike:
+    self._assert_support_omics()
+    omics_embeddings = self.omics_projector(omics_vectors)
+    omics_embeddings = omics_embeddings[:, :, None, :]
+    return _merge_placeholder_embeddings(
+        text_embeddings=embeddings,
+        replacement_embeddings=omics_embeddings,
+        mask=tokens == self.config.omics_token_placeholder,
+    )
+
   def get_model_input(self):
     """Returns a dummy model input for the transformer.
 
@@ -1262,4 +1383,5 @@ class Qwen3(BackendMappingMixin, nnx.Module):
         'attention_mask': jnp.ones(
             (dummy_batch_size, 1, dummy_seq_len), dtype=jnp.bool
         ),
+        'omics_vectors': None,
     }

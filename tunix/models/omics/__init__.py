@@ -12,18 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Qwen2 API."""
+"""Compatibility layer for legacy omics helpers.
 
-from tunix.models.qwen3 import mapping_sglang_jax
-from tunix.models.qwen3 import mapping_vllm_jax
-from tunix.models.qwen3 import model
-from tunix.models.qwen3 import omics
-from tunix.models.qwen3 import params
+Prefer native omics support in `tunix.models.qwen3`.
+"""
 
-BACKEND_MAPPINGS = {
-    'vllm_jax': mapping_vllm_jax.VLLM_JAX_MAPPING,
-    'sglang_jax': mapping_sglang_jax.SGLANG_JAX_MAPPING,
-}
-
-
-__all__ = ['BACKEND_MAPPINGS', 'model', 'omics', 'params']
+from tunix.models.omics.model import OmicsAgnosticLM
+from tunix.models.omics.model import OmicsConfig
+from tunix.models.omics.model import OmicsEmbedderAdapter
+from tunix.models.omics.model import load_omics_model

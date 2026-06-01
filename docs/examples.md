@@ -57,5 +57,9 @@ All examples are located in this
       <td><a href="https://github.com/google/tunix/tree/main/examples/agentic/"><code>agentic/</code></a></td>
       <td>Examples and scripts for agentic workflows, with async rollout.</td>
     </tr>
+    <tr>
+      <td><a href="https://github.com/google/tunix/tree/main/examples/sft/qwen3_omics_minimal.py"><code>sft/qwen3_omics_minimal.py</code></a></td>
+      <td>Minimal OmicsLM-style Qwen3 example showing <code>&lt;omics&gt;</code> placeholder replacement, continuous omics vectors, and gene-token embedding augmentation.</td>
+    </tr>
   </tbody>
 </table>

@@ -126,6 +126,31 @@ class PeftTrainerTest(parameterized.TestCase):
       trainer.train(self.train_ds, self.eval_ds)
     self.assertEqual(global_counter, 1)
 
+  def test_default_loss_fn_passes_images_and_omics(self):
+    captured_kwargs = {}
+
+    class DummyModel:
+
+      def __call__(self, input_tokens, positions, cache, attention_mask, **kwargs):
+        del positions, cache, attention_mask
+        captured_kwargs.update(kwargs)
+        b, l = input_tokens.shape
+        logits = jnp.zeros((b, l, 8), dtype=jnp.float32)
+        return logits, None
+
+    loss = peft_trainer._default_loss_fn(
+        model=DummyModel(),
+        input_tokens=jnp.array([[1, 2, 3]], dtype=jnp.int32),
+        input_mask=jnp.array([[1, 1, 1]], dtype=jnp.int32),
+        positions=jnp.array([[0, 1, 2]], dtype=jnp.int32),
+        attention_mask=jnp.ones((1, 1, 3), dtype=jnp.bool_),
+        images=jnp.ones((1, 2, 2, 3), dtype=jnp.float32),
+        omics_vectors=jnp.ones((1, 1, 4), dtype=jnp.float32),
+    )
+    self.assertIn('images', captured_kwargs)
+    self.assertIn('omics_vectors', captured_kwargs)
+    self.assertGreaterEqual(float(loss), 0.0)
+
   @parameterized.named_parameters(
       ('cache_nnx_graph', True),
       ('no_cache_nnx_graph', False),
