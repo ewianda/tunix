@@ -11,6 +11,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
 echo "=== Creating venv ==="
+rm -rf $VENV
 uv venv $VENV --python 3.12
 source $VENV/bin/activate
 
