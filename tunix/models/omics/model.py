@@ -102,19 +102,48 @@ def load_omics_model(
     mesh: Any,
     dtype: jnp.dtype = jnp.bfloat16,
 ) -> OmicsAgnosticLM:
-  """Load a model and wire omics settings into native model support."""
+  """Load a model and add native omics support.
+
+  Loads the base model WITHOUT omics_dim (so safetensors loading
+  succeeds), then sets omics config and creates the projector.
+  """
+  import dataclasses
+  from flax import nnx
+  import jax
+
   if omics_config.neftune_alpha:
     logging.warning(
         'OmicsConfig.neftune_alpha is ignored in compatibility loader; '
         'configure noise in the training pipeline instead.'
     )
 
-  if hasattr(base_config, 'omics_dim'):
-    base_config.omics_dim = omics_config.omics_dim
-  if hasattr(base_config, 'omics_token_placeholder'):
-    base_config.omics_token_placeholder = omics_config.omics_token_id
-
+  # Load base model without omics (avoids safetensors tree mismatch)
   base_model = base_model_loader(model_path, base_config, mesh, dtype=dtype)
+
+  # Now set omics config and create projector on the loaded model
+  if hasattr(base_config, 'omics_dim'):
+    base_config = dataclasses.replace(
+        base_config,
+        omics_dim=omics_config.omics_dim,
+        omics_token_placeholder=omics_config.omics_token_id,
+    )
+    base_model.config = base_config
+
+    # Import the projector class from the model module
+    projector_cls = type(base_model).mro()[0]
+    model_module = type(base_model).__module__
+    import importlib
+    mod = importlib.import_module(model_module)
+    if hasattr(mod, 'OmicsProjector'):
+      base_model.omics_projector = mod.OmicsProjector(
+          omics_dim=omics_config.omics_dim,
+          embed_dim=base_config.embed_dim,
+          rngs=nnx.Rngs(params=42),
+          dtype=base_config.dtype,
+          param_dtype=base_config.param_dtype,
+          shd_config=base_config.shd_config,
+      )
+
   model_params = inspect.signature(base_model.__call__).parameters
   has_var_keyword = any(
       p.kind == inspect.Parameter.VAR_KEYWORD for p in model_params.values()
